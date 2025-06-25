@@ -229,7 +229,7 @@ if st.button("Cari Parkir Sekarang"):
                 # Tampilkan label dan ID mobil di kiri atas bbox
                 cv2.putText(
                     frame,
-                    f"Mobil ID:{track_id}",
+                    f"ID:{track_id}",
                     (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
@@ -240,7 +240,7 @@ if st.button("Cari Parkir Sekarang"):
                 # Jika tidak ada ID, tetap beri label Mobil di kiri atas bbox
                 cv2.putText(
                     frame,
-                    "Mobil",
+                    "",
                     (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
@@ -441,7 +441,7 @@ if st.session_state.slots is not None:
                     # Tampilkan label dan ID mobil di kiri atas bbox
                     cv2.putText(
                         frame,
-                        f"Mobil ID:{track_id}",
+                        f"ID:{track_id}",
                         (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
@@ -451,7 +451,7 @@ if st.session_state.slots is not None:
                 else:
                     cv2.putText(
                         frame,
-                        "Mobil",
+                        "",
                         (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
