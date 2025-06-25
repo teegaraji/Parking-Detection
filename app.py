@@ -226,10 +226,22 @@ if st.button("Cari Parkir Sekarang"):
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
             if tuple(det) in bbox_id_map:
                 track_id = bbox_id_map[tuple(det)]
+                # Tampilkan ID mobil di bawah bbox
                 cv2.putText(
                     frame,
-                    f"ID:{track_id}",
-                    (x1, y1 - 10),
+                    f"{track_id}",
+                    (x1, y2 + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2,
+                )
+            else:
+                # Jika tidak ada ID, tetap beri info
+                cv2.putText(
+                    frame,
+                    "Mobil",
+                    (x1, y2 + 20),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (0, 0, 255),
@@ -426,10 +438,21 @@ if st.session_state.slots is not None:
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
                 if tuple(det) in bbox_id_map:
                     track_id = bbox_id_map[tuple(det)]
+                    # Tampilkan ID mobil di bawah bbox
                     cv2.putText(
                         frame,
-                        f"ID:{track_id}",
-                        (x1, y1 - 10),
+                        f"{track_id}",
+                        (x1, y2 + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2,
+                    )
+                else:
+                    cv2.putText(
+                        frame,
+                        "Mobil",
+                        (x1, y2 + 20),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
                         (0, 0, 255),
