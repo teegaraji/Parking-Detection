@@ -5,6 +5,7 @@ import torch.nn as nn
 import torchvision.models as models
 from PIL import Image
 from torchvision import transforms
+from torchvision.models import ResNet18_Weights
 
 transform = transforms.Compose(
     [

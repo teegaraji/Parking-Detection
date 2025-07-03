@@ -14,14 +14,15 @@ from cnn_resnet18 import extract_feature_from_bbox, load_embeder_from_pt
 from tracking import Tracker
 
 
-# Load model
+# Modifikasi di load_model() dalam app.py
 @st.cache_resource
 def load_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     detector = YOLO("models/car_detection.pt")
     detector.to(device)
     embedder = load_embeder_from_pt("models/embedder_triplet.pt").to(device)
-    return detector, Tracker(embedder)
+    # Inisialisasi tracker dengan parameter yang lebih optimal
+    return detector, Tracker(embedder, min_hits=1, cos_threshold=0.8, max_age=15)
 
 
 detector, tracker = load_model()
@@ -185,48 +186,35 @@ if st.button("Cari Parkir Sekarang"):
         # Deteksi mobil
         results = detector(frame)[0]
         detections = []
+        h_img, w_img = frame.shape[:2]
         for box, cls in zip(results.boxes.xyxy, results.boxes.cls):
-            if int(cls) == 0:
+            if int(cls) == 0:  # Class 0 adalah mobil/kendaraan
                 x1, y1, x2, y2 = map(int, box)
-                detections.append([x1, y1, x2, y2])
+                # Clamp bbox ke dalam gambar
+                x1 = max(0, min(w_img - 1, x1))
+                y1 = max(0, min(h_img - 1, y1))
+                x2 = max(0, min(w_img - 1, x2))
+                y2 = max(0, min(h_img - 1, y2))
+                if x2 > x1 and y2 > y1:
+                    detections.append([x1, y1, x2, y2])
+                    # Tambahkan visualisasi bounding box deteksi
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 255), 2)
 
         # Tracking
         tracks = tracker.update(frame, detections)
 
-        # Buat mapping bbox->track_id
-        bbox_id_map = {}
-        for track_id, bbox in tracks:
-            # Pastikan bbox dalam format list/array 4 elemen
-            if bbox is None or len(bbox) != 4:
-                continue
-            # Cari deteksi dengan IOU tertinggi
-            best_iou = 0
-            best_det = None
-            for det in detections:
-                # Hitung IOU
-                xx1 = max(bbox[0], det[0])
-                yy1 = max(bbox[1], det[1])
-                xx2 = min(bbox[2], det[2])
-                yy2 = min(bbox[3], det[3])
-                w = max(0, xx2 - xx1)
-                h = max(0, yy2 - yy1)
-                inter = w * h
-                area1 = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-                area2 = (det[2] - det[0]) * (det[3] - det[1])
-                iou = inter / (area1 + area2 - inter + 1e-6)
-                if iou > best_iou:
-                    best_iou = iou
-                    best_det = tuple(det)
-            if best_det is not None and best_iou > 0.3:
-                bbox_id_map[best_det] = track_id
-
-        # Gambar bounding box dan ID (jika ada)
-        for det in detections:
-            x1, y1, x2, y2 = det
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-            if tuple(det) in bbox_id_map:
-                track_id = bbox_id_map[tuple(det)]
-                # Tampilkan label dan ID mobil di kiri atas bbox
+        # Gambar bounding box dan ID
+        if tracks and len(tracks) > 0:
+            for track_id, bbox in tracks:
+                if bbox is None or len(bbox) != 4:
+                    continue
+                x1, y1, x2, y2 = map(int, bbox)
+                # Clamp bbox ke dalam gambar
+                x1 = max(0, min(w_img - 1, x1))
+                y1 = max(0, min(h_img - 1, y1))
+                x2 = max(0, min(w_img - 1, x2))
+                y2 = max(0, min(h_img - 1, y2))
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
                 cv2.putText(
                     frame,
                     f"ID:{track_id}",
@@ -236,17 +224,25 @@ if st.button("Cari Parkir Sekarang"):
                     (0, 0, 255),
                     2,
                 )
-            else:
-                # Jika tidak ada ID, tetap beri label Mobil di kiri atas bbox
+        else:
+            # Fallback: tampilkan bbox deteksi tanpa ID jika tracker belum ada hasil
+            for idx, det in enumerate(detections):
+                x1, y1, x2, y2 = det
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
+                # Tambahkan ID unik sementara berbasis urutan deteksi
                 cv2.putText(
                     frame,
-                    "",
+                    f"ID:{idx+1}",
                     (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
                     (0, 0, 255),
                     2,
                 )
+            # Debug info jika tidak ada track
+            st.info(
+                "Tidak ada ID tracking yang terdeteksi pada frame ini. Setiap kendaraan diberi ID unik sementara."
+            )
 
         # Cek slot kosong
         slot_status = {}
@@ -296,6 +292,28 @@ if st.button("Cari Parkir Sekarang"):
             channels="RGB",
             caption="Hasil Deteksi",
         )
+
+        st.subheader("Metrik Tracking")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(label="Jumlah Kendaraan Terdeteksi", value=len(detections))
+        with col2:
+            st.metric(label="Total ID Switches", value=tracker.id_switches)
+
+        # Info lebih lanjut
+        with st.expander("Informasi Tracking"):
+            st.markdown(
+                """
+            **ID Switch** adalah kejadian ketika ID tracker berpindah antara objek yang berbeda.
+            Semakin rendah nilai ID Switch, semakin baik kualitas tracking.
+            
+            Penyebab ID Switch:
+            - Occlusion (objek terhalang)
+            - Objek terlalu dekat satu sama lain
+            - Kualitas deteksi yang buruk
+            - Fitur visual yang mirip antar objek
+            """
+            )
 
         if kosong:
             st.success(f"Slot kosong ditemukan: {', '.join(kosong)}")
@@ -410,54 +428,22 @@ if st.session_state.slots is not None:
                     detections.append([x1, y1, x2, y2])
 
             tracks = tracker.update(frame, detections)
-            bbox_id_map = {}
+
+            # Gambar bounding box dan ID untuk setiap hasil tracking
             for track_id, bbox in tracks:
                 if bbox is None or len(bbox) != 4:
                     continue
-                best_iou = 0
-                best_det = None
-                for det in detections:
-                    xx1 = max(bbox[0], det[0])
-                    yy1 = max(bbox[1], det[1])
-                    xx2 = min(bbox[2], det[2])
-                    yy2 = min(bbox[3], det[3])
-                    w = max(0, xx2 - xx1)
-                    h = max(0, yy2 - yy1)
-                    inter = w * h
-                    area1 = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-                    area2 = (det[2] - det[0]) * (det[3] - det[1])
-                    iou = inter / (area1 + area2 - inter + 1e-6)
-                    if iou > best_iou:
-                        best_iou = iou
-                        best_det = tuple(det)
-                if best_det is not None and best_iou > 0.3:
-                    bbox_id_map[best_det] = track_id
-
-            for det in detections:
-                x1, y1, x2, y2 = det
+                x1, y1, x2, y2 = map(int, bbox)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-                if tuple(det) in bbox_id_map:
-                    track_id = bbox_id_map[tuple(det)]
-                    # Tampilkan label dan ID mobil di kiri atas bbox
-                    cv2.putText(
-                        frame,
-                        f"ID:{track_id}",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 0, 255),
-                        2,
-                    )
-                else:
-                    cv2.putText(
-                        frame,
-                        "",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (0, 0, 255),
-                        2,
-                    )
+                cv2.putText(
+                    frame,
+                    f"ID:{track_id}",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2,
+                )
 
             slot_status = {}
             for slot in slots:
@@ -528,6 +514,28 @@ if st.session_state.slots is not None:
                 "batch_num": batch_num,
             }
         )
+
+        st.subheader("Metrik Tracking")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric(label="Jumlah Kendaraan Terdeteksi", value=len(detections))
+        with col2:
+            st.metric(label="Total ID Switches", value=tracker.id_switches)
+
+        # Info lebih lanjut
+        with st.expander("Informasi Tracking"):
+            st.markdown(
+                """
+            **ID Switch** adalah kejadian ketika ID tracker berpindah antara objek yang berbeda.
+            Semakin rendah nilai ID Switch, semakin baik kualitas tracking.
+            
+            Penyebab ID Switch:
+            - Occlusion (objek terhalang)
+            - Objek terlalu dekat satu sama lain
+            - Kualitas deteksi yang buruk
+            - Fitur visual yang mirip antar objek
+            """
+            )
 
         # Tombol download untuk batch ini (letakkan sebelum logika kelanjutan proses)
         with open(batch_filepath, "rb") as f:
